@@ -1,0 +1,25 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# In the Render dashboard choose New -> Blueprint and select this repository.
+services:
+  - type: web
+    name: docpredict
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # A persistent disk (needed so accounts and saved analyses survive restarts and deploys)
+    # requires a paid instance type. "starter" is the smallest paid plan.
+    plan: starter
+    healthCheckPath: /api/health
+    autoDeploy: true
+    disk:
+      name: docpredict-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: DOCPREDICT_SECRET_KEY
+        generateValue: true   # random secret created by Render; never stored in the repository
+      - key: DOCPREDICT_ENABLE_HSTS
+        value: "true"         # Render serves the site over HTTPS
+      - key: DOCPREDICT_TOKEN_EXPIRE_MINUTES
+        value: "120"
+      - key: DOCPREDICT_MAX_UPLOAD_MB
+        value: "10"

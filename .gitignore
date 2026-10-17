@@ -1,0 +1,28 @@
+# Secrets and local data
+.env
+backend/.env
+backend/data/
+*.db
+*.db-journal
+
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/coverage/
+*.log
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Generated test artifacts
+e2e-artifacts/

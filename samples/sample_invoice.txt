@@ -1,0 +1,10 @@
+Northwind Traders Ltd
+INVOICE
+Invoice Number: INV-48213
+Invoice Date: 4 March 2025
+Bill To: Harbor Dental Clinic, 22 Bay Street, Portland
+Description: Annual software licence for practice management, 5 seats.
+Subtotal $4,200.00. Sales tax 8% $336.00. Total amount due $4,536.00.
+Payment is due within 14 days of the invoice date. Please quote the invoice number with your payment.
+Late payments may incur an interest charge of 1.5% per month.
+Questions about this bill: accounts@northwind.example or +1 503 555 0199.

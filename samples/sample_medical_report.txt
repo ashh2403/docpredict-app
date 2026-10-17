@@ -1,0 +1,8 @@
+Patient Consultation Note
+Patient: James Carter. Date of visit: 12 March 2025.
+Chief complaint: persistent fatigue and shortness of breath on exertion for three weeks.
+Examination: blood pressure 142/90 mmHg, heart rate 88 bpm. Chest clear on auscultation.
+Laboratory findings: haemoglobin 10.1 g/dL, below the reference range; ferritin low.
+Diagnosis: iron deficiency anaemia.
+Plan: start ferrous sulfate 200 mg twice daily, repeat complete blood count in six weeks, dietary advice given.
+Follow-up appointment recommended in 6 weeks. Attending physician: Dr. Chen Wei, Internal Medicine.
