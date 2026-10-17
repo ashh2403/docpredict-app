@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import dataclasses
-import sqlite3
 
 import pytest
 
@@ -43,13 +42,13 @@ def test_upload_analyse_and_retrieve(client, alice, temp_dir, name, builder, tex
     assert _leftover_uploads(temp_dir) == []
 
 
-def test_upload_failure_cleans_temp_and_saves_nothing(client, alice, temp_dir, db_path):
+def test_upload_failure_cleans_temp_and_saves_nothing(client, alice, temp_dir, db):
     res = upload(client, alice["headers"], "scan.pdf", samples.make_image_only_pdf())
     assert res.status_code == 422 and "OCR" in res.json()["detail"]
     res = upload(client, alice["headers"], "fake.pdf", b"not a pdf")
     assert res.status_code == 422
     assert _leftover_uploads(temp_dir) == []
-    assert sqlite3.connect(db_path).execute("SELECT COUNT(*) FROM analyses").fetchone()[0] == 0
+    assert db.scalar("SELECT COUNT(*) FROM analyses") == 0
 
 
 def test_upload_validation_errors(client, alice):
@@ -79,15 +78,14 @@ def test_filename_is_sanitised(client, alice):
     assert res.json()["filename"] == "_b_evil_b_.txt"
 
 
-def test_full_text_and_file_are_not_persisted(client, alice, db_path, temp_dir):
+def test_full_text_and_file_are_not_persisted(client, alice, db, temp_dir):
     long_text = samples.CONTRACT_TEXT + "\n" + "\n".join(
         f"Clause {i}. The parties agree that obligation number {i} continues for the agreed term." for i in range(150))
     res = upload(client, alice["headers"], "long.txt", samples.make_txt(long_text))
     assert res.status_code == 201
-    con = sqlite3.connect(db_path)
-    columns = [r[1] for r in con.execute("PRAGMA table_info(analyses)")]
+    columns = db.columns("analyses")
     assert not any(c in columns for c in ("text", "content", "full_text", "file_data"))
-    row = con.execute("SELECT * FROM analyses").fetchone()
+    row = db.first_row("SELECT * FROM analyses")
     stored = " ".join(str(v) for v in row)
     assert long_text not in stored
     assert len(stored) < len(long_text) / 2
@@ -187,12 +185,12 @@ def test_user_records_are_isolated(client, alice, bob):
     assert client.get("/api/analyses", headers=alice["headers"]).json()["total"] == 4
 
 
-def test_account_deletion_removes_analyses(client, alice, db_path):
+def test_account_deletion_removes_analyses(client, alice, db):
     _seed(client, alice["headers"])
     from .conftest import PASSWORD
     assert client.request("DELETE", "/api/users/me", headers=alice["headers"],
                           json={"password": PASSWORD}).status_code == 200
-    assert sqlite3.connect(db_path).execute("SELECT COUNT(*) FROM analyses").fetchone()[0] == 0
+    assert db.scalar("SELECT COUNT(*) FROM analyses") == 0
 
 
 def test_stats(client, alice):

@@ -1,20 +1,21 @@
 # Render Blueprint: https://render.com/docs/blueprint-spec
 # In the Render dashboard choose New -> Blueprint and select this repository.
+#
+# Free plan: the instance sleeps after ~15 minutes without traffic (first request then takes
+# about a minute) and its local disk is wiped on every restart. All data is therefore kept in
+# an external PostgreSQL database (for example a free Neon project), set via
+# DOCPREDICT_DATABASE_URL. Uploaded files only live briefly in the local temp folder.
 services:
   - type: web
     name: docpredict
     runtime: docker
     dockerfilePath: ./Dockerfile
-    # A persistent disk (needed so accounts and saved analyses survive restarts and deploys)
-    # requires a paid instance type. "starter" is the smallest paid plan.
-    plan: starter
+    plan: free
     healthCheckPath: /api/health
     autoDeploy: true
-    disk:
-      name: docpredict-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
+      - key: DOCPREDICT_DATABASE_URL
+        sync: false           # Render asks for this value: paste the Neon connection string
       - key: DOCPREDICT_SECRET_KEY
         generateValue: true   # random secret created by Render; never stored in the repository
       - key: DOCPREDICT_ENABLE_HSTS

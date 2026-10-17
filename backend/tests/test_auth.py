@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import sqlite3
-
 import jwt
 
 from app.config import settings
@@ -9,14 +7,14 @@ from app.config import settings
 from .conftest import PASSWORD, auth_headers, register
 
 
-def test_register_returns_token_and_hashes_password(client, db_path):
+def test_register_returns_token_and_hashes_password(client, db):
     data = register(client, email="Alice@Example.com")
     assert data["token_type"] == "bearer"
     assert data["user"]["email"] == "alice@example.com"  # normalised
     assert data["user"]["theme"] == "system"
     assert "password" not in str(data["user"]).lower()
 
-    stored = sqlite3.connect(db_path).execute("SELECT password_hash FROM users").fetchone()[0]
+    stored = db.scalar("SELECT password_hash FROM users")
     assert stored != PASSWORD and stored.startswith("$2")  # bcrypt
 
 
@@ -114,13 +112,13 @@ def test_change_password(client, alice):
     assert client.post("/api/auth/login", json={"email": "alice@example.com", "password": "NewPass123"}).status_code == 200
 
 
-def test_delete_account_requires_password_and_removes_user(client, alice, db_path):
+def test_delete_account_requires_password_and_removes_user(client, alice, db):
     assert client.request("DELETE", "/api/users/me", headers=alice["headers"],
                           json={"password": "Wrong12345"}).status_code == 400
     assert client.request("DELETE", "/api/users/me", headers=alice["headers"],
                           json={"password": PASSWORD}).status_code == 200
     assert client.get("/api/users/me", headers=alice["headers"]).status_code == 401
-    assert sqlite3.connect(db_path).execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
+    assert db.scalar("SELECT COUNT(*) FROM users") == 0
 
 
 def test_health(client):

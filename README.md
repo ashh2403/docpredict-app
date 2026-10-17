@@ -100,31 +100,55 @@ The database (`backend\data\docpredict.db`) is created automatically on first st
 
 ## Deploying to Render
 
-In production, DocPredict runs as **one service**. The `Dockerfile` builds the React app, installs the backend, retrains the model (deterministic, so the result is identical to the committed one), and starts FastAPI. FastAPI then serves both `/api` and the website, so there is one web address and no cross-origin setup. `render.yaml` describes the service for Render.
+In production, DocPredict runs as **one free Render web service** with its data in a **free Neon PostgreSQL database**:
 
-**What the deployment uses:**
+- The `Dockerfile` builds the React app, installs the backend, retrains the model (deterministic, so the result is identical to the committed one), and starts FastAPI.
+- FastAPI serves both `/api` and the website, so there is one web address and no cross-origin setup.
+- `render.yaml` describes the service for Render.
 
-- **Plan.** A persistent disk mounted at `/var/data` holds the SQLite database. Render only offers disks on **paid** instance types, so `render.yaml` uses the `starter` plan plus a 1 GB disk. Check current prices on render.com before applying. Without a disk, every account and saved analysis would be lost on each restart or deploy.
-- **Secret key.** Render generates `DOCPREDICT_SECRET_KEY` itself (`generateValue`). It is never stored in the repository.
-- **HTTPS** is provided by Render. The app then sends HSTS (`DOCPREDICT_ENABLE_HSTS=true`).
-- **API docs** (`/docs`) are disabled in the container (`DOCPREDICT_ENABLE_DOCS=false`).
-- **One instance only.** SQLite and the in-memory login throttle assume a single instance. Do not scale to more than one.
+**Why an external database.** On Render's free plan the local disk is wiped on every restart, and a free instance restarts whenever it wakes from sleep. All accounts and saved analyses therefore live in PostgreSQL. Only uploaded files touch the local disk, briefly, during processing.
 
-**Steps:**
+**Limits of the free setup:**
 
-1. Push this project to a GitHub repository.
-2. On https://dashboard.render.com choose **New → Blueprint**, connect your GitHub account, and select the repository.
-3. Render reads `render.yaml` and shows the `docpredict` service with its disk. Confirm, and the first build starts. It takes a few minutes: npm install, pip install, model training.
-4. When the deploy is live, open the `https://docpredict-xxxx.onrender.com` address Render shows. `/api/health` should return `"status": "ok"`.
-5. Later pushes to the connected branch redeploy automatically (`autoDeploy: true`).
+- **Sleep.** The site sleeps after about 15 minutes without visitors. The next visit takes about a minute while it wakes up.
+- **Neon free plan.** Storage is small but ample for analysis metadata. Neon may pause the database when idle and resumes it automatically on the next query; the app reconnects on its own.
+- **One instance only.** The in-memory login throttle assumes a single instance. Do not scale to more than one.
 
-**Production settings** that the container sets (you can also run them locally): `DOCPREDICT_STATIC_DIR` (folder holding the built frontend), `DOCPREDICT_DATA_DIR=/var/data`, `DOCPREDICT_ENABLE_DOCS=false`, and `DOCPREDICT_ENABLE_HSTS` (set by `render.yaml`).
+### Step 1: create the database (Neon)
 
-To run the same single-server production mode locally without Docker (PowerShell, from the project folder):
+1. Sign up at https://neon.tech (a free account; signing in with GitHub works) and create a project, for example `docpredict`. Pick a region close to your Render region.
+2. On the project dashboard, click **Connect**. Copy the **connection string**. It looks like `postgresql://user:password@ep-xxxx.region.aws.neon.tech/neondb?sslmode=require`.
+3. Keep it private. It contains the database password.
+
+### Step 2: create the web service (Render)
+
+1. On https://dashboard.render.com choose **New → Blueprint** and enter the repository URL (`https://github.com/ashh2403/docpredict-app`), or connect GitHub and pick the repository.
+2. Render reads `render.yaml` and asks for **`DOCPREDICT_DATABASE_URL`**. Paste the Neon connection string. The plan shown should be **Free**.
+3. Click **Apply**. The first build takes several minutes (npm install, pip install, model training).
+4. When it shows **Live**, open the `https://docpredict-xxxx.onrender.com` address. `/api/health` should return `"status": "ok"`.
+
+The app creates its tables on first start. Render generates `DOCPREDICT_SECRET_KEY` itself (`generateValue`), so it is never stored in the repository.
+
+### Settings
+
+The container sets:
+- `DOCPREDICT_STATIC_DIR`: the built website;
+- `DOCPREDICT_ENABLE_DOCS=false`: no public API docs;
+- `DOCPREDICT_DATA_DIR=/var/data`: temp files only.
+
+`render.yaml` adds:
+- `DOCPREDICT_ENABLE_HSTS=true`: Render serves HTTPS;
+- the secret key;
+- the database URL.
+
+If `DOCPREDICT_DATABASE_URL` is missing in production mode, the app falls back to SQLite and **logs a warning**, because that data would be lost on the next restart.
+
+To run the same single-server production mode locally (PowerShell, from the project folder):
 
 ```powershell
 cd frontend; npm run build; cd ..\backend
 $env:DOCPREDICT_STATIC_DIR = "..\frontend\dist"; $env:DOCPREDICT_ENABLE_DOCS = "false"
+# optional: $env:DOCPREDICT_DATABASE_URL = "postgresql://user:password@host/db?sslmode=require"
 .venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8010
 # open http://127.0.0.1:8010
 ```
@@ -194,12 +218,12 @@ docpredict/
 │   └── vite.config.ts         dev/preview servers proxy /api to the backend
 ├── scripts/                   setup.ps1, start.ps1, start-backend.ps1, start-frontend.ps1, test.ps1
 ├── Dockerfile                 production image (builds frontend, serves everything from FastAPI)
-├── render.yaml                Render Blueprint (web service + persistent disk)
+├── render.yaml                Render Blueprint (free web service; data in external PostgreSQL)
 └── samples/                   generated sample documents (scripts\setup.ps1)
 ```
 
 **Stack:**
-- Backend: FastAPI 0.115, SQLAlchemy 2.0 with SQLite, scikit-learn 1.6, pypdf 5, python-docx 1.1, bcrypt, PyJWT.
+- Backend: FastAPI 0.115, SQLAlchemy 2.0 with SQLite locally or PostgreSQL in production (psycopg 3), scikit-learn 1.6, pypdf 5, python-docx 1.1, bcrypt, PyJWT.
 - Frontend: React 18, TypeScript 5.7, Vite 6, React Router 6, Recharts 2, lucide-react icons, and locally bundled Inter and Plus Jakarta Sans fonts (no external font requests).
 
 ## Configuration
@@ -210,7 +234,7 @@ All settings are read from environment variables or `backend\.env`. The template
 |---|---|---|
 | `DOCPREDICT_SECRET_KEY` | *(none)* | JWT signing key, at least 32 characters. If unset, a temporary key is generated at startup and a warning is logged; every restart then signs all users out. `setup.ps1` writes a random one. |
 | `DOCPREDICT_DATA_DIR` | `backend/data` | Location of the SQLite DB and the temp folder |
-| `DOCPREDICT_DATABASE_URL` | `sqlite:///<data dir>/docpredict.db` | SQLAlchemy URL |
+| `DOCPREDICT_DATABASE_URL` | `sqlite:///<data dir>/docpredict.db` | Database URL. SQLite, or PostgreSQL: a plain `postgresql://…` URL as given by Neon or Render works |
 | `DOCPREDICT_TEMP_DIR` | `<data dir>/tmp` | Where uploads live briefly during processing |
 | `DOCPREDICT_MAX_UPLOAD_MB` | `10` | Maximum upload size |
 | `DOCPREDICT_MAX_PDF_PAGES` | `200` | Maximum PDF pages |
@@ -352,7 +376,7 @@ Error responses use `{"detail": "<message>"}` with the status codes 401, 404, 40
 
 ## Testing
 
-**Backend (pytest, 79 tests).** Run `cd backend; .venv\Scripts\python -m pytest`. The tests cover:
+**Backend (pytest, 79 tests).** Run `cd backend; .venv\Scripts\python -m pytest`. To run the same suite against PostgreSQL, set `DOCPREDICT_TEST_DATABASE_URL` to a **disposable** database URL first. Its tables are dropped and recreated for every test. The tests cover:
 - **Authentication:** registration, validation, duplicate emails, bcrypt storage, login success and failure, no account enumeration, throttling, forged and expired tokens, logout revocation, profile and theme updates, password change, account deletion.
 - **Document parsing:** real PDF (fpdf2), DOCX (python-docx, including tables) and TXT (UTF-8 BOM, cp1252) files. Rejection of fake extensions, binaries, empty files, encrypted PDFs, image-only PDFs, truncated PDFs, non-Word zips, DOCX zip bombs and the page limit. Text truncation, file-name sanitisation and sentence splitting.
 - **Model:** correct predictions on sample documents, determinism, uncertain handling for out-of-scope, very short and mixed documents, evidence drawn from the document itself, extractive summaries, keywords and fields, priority independent of confidence, metrics file integrity.
@@ -394,6 +418,8 @@ Run on 17 Oct 2026, Windows 11 Home (10.0.26200), Python 3.11.9, Node 24.12.0, M
 | TypeScript type-check + production build (`npm run build`) | **Passed**, no warnings (pages are code-split; main chunk 213 kB / 68 kB gzip) |
 | `scripts\test.ps1` | **All checks passed** |
 | `scripts\setup.ps1` on the existing checkout | **Passed** |
+| Backend test suite against **PostgreSQL 16** (`DOCPREDICT_TEST_DATABASE_URL`) | **79 passed, 0 failed** |
+| Production mode backed by PostgreSQL: live HTTP workflow, then an account created, the server restarted with a fresh local data folder, and the account signed in again | **33/33 passed; data survived the restart** |
 | `scripts\setup.ps1` **from scratch** (no venv, no node_modules, no `.env`, no trained model), followed by `scripts\test.ps1` in that copy | **Passed**: venv created, `.env` generated, model retrained with **identical metrics**, 71 + 21 tests (the suite before the deployment work) and the build passed |
 | `scripts\start-backend.ps1` + `scripts\start-frontend.ps1` | **Passed**: both servers start, and `/api` is proxied through port 5173 |
 | `npm run preview` (production build) | **Passed**: SPA, deep links and `/api` proxy on port 4173 |
@@ -419,5 +445,5 @@ Run on 17 Oct 2026, Windows 11 Home (10.0.26200), Python 3.11.9, Node 24.12.0, M
 | Screen-reader and keyboard-only usage | Semantic roles and labels are used and exercised by the tests, but no assistive-technology testing was done. |
 | Accuracy on real-world documents | **Not measured** (no labelled real dataset). |
 | Large-scale, concurrent-user or load testing; formal security review | **Not performed.** |
-| **Docker image build** (`Dockerfile`) and the **live Render deployment** | **Untested here.** Docker is not installed on this machine, so the image has not been built locally; the commands it runs were verified individually in production mode above. The first Render build is the first real build of the image. |
+| **Docker image build**, the **live Render deployment** and a real **Neon** database | **Untested here.** PostgreSQL was tested with a local PostgreSQL 16 server, not Neon itself. Docker is not installed on this machine, so the image has not been built locally; the commands it runs were verified individually in production mode above. The first Render build is the first real build of the image. |
 | Setup in a folder whose path exceeds the Windows path limit | Fails with a clear message and leaves no broken venv (verified). Setup does not work around the limit itself. |

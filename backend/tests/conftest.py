@@ -12,8 +12,10 @@ os.environ["DOCPREDICT_SECRET_KEY"] = "test-secret-key-that-is-long-enough-01234
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import inspect, text  # noqa: E402
 
 from app import database  # noqa: E402
+from app.database import Base  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.main import app  # noqa: E402
 from app.security import login_throttle  # noqa: E402
@@ -21,18 +23,41 @@ from app.security import login_throttle  # noqa: E402
 PASSWORD = "Sup3rSecret!"
 
 
+# Set to a PostgreSQL URL to run the whole suite against PostgreSQL instead of SQLite.
+# The database's tables are dropped and recreated for every test.
+TEST_DATABASE_URL = os.environ.get("DOCPREDICT_TEST_DATABASE_URL")
+
+
+class DbProbe:
+    """Read-only helpers for inspecting stored data, independent of the database engine."""
+
+    def scalar(self, sql: str):
+        with database.engine.connect() as conn:
+            return conn.execute(text(sql)).scalar()
+
+    def first_row(self, sql: str) -> tuple:
+        with database.engine.connect() as conn:
+            return tuple(conn.execute(text(sql)).first())
+
+    def columns(self, table: str) -> list[str]:
+        return [c["name"] for c in inspect(database.engine).get_columns(table)]
+
+
 @pytest.fixture()
-def db_path(tmp_path: Path) -> Path:
-    path = tmp_path / "test.db"
-    database.configure(f"sqlite:///{path.as_posix()}")
+def db(tmp_path: Path) -> DbProbe:
+    database.configure(TEST_DATABASE_URL or f"sqlite:///{(tmp_path / 'test.db').as_posix()}")
+    if TEST_DATABASE_URL:
+        Base.metadata.drop_all(database.engine)
     database.init_db()
     login_throttle.reset()
-    yield path
+    yield DbProbe()
+    if TEST_DATABASE_URL:
+        Base.metadata.drop_all(database.engine)
     database.engine.dispose()
 
 
 @pytest.fixture()
-def client(db_path: Path) -> TestClient:
+def client(db: DbProbe) -> TestClient:
     with TestClient(app) as c:
         yield c
 

@@ -13,14 +13,41 @@ class Base(DeclarativeBase):
     pass
 
 
+def normalize_url(url: str) -> str:
+    """Accept the plain postgres URLs that hosts such as Neon or Render provide.
+
+    SQLAlchemy needs the driver named explicitly to use psycopg 3.
+    """
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
+def is_sqlite(url: str) -> bool:
+    return url.startswith("sqlite")
+
+
 def _make_engine(url: str) -> Engine:
+    url = normalize_url(url)
     if url.startswith("sqlite:///"):
         db_path = Path(url.removeprefix("sqlite:///"))
         if str(db_path) != ":memory:":
             db_path.parent.mkdir(parents=True, exist_ok=True)
-    engine = create_engine(url, connect_args={"check_same_thread": False} if url.startswith("sqlite") else {})
+    if is_sqlite(url):
+        engine = create_engine(url, connect_args={"check_same_thread": False})
+    else:
+        engine = create_engine(
+            url,
+            pool_pre_ping=True,   # hosted Postgres (e.g. Neon) closes idle connections
+            pool_recycle=300,
+            pool_size=5,
+            max_overflow=5,
+            # No server-side prepared statements: safe behind PgBouncer-style connection poolers.
+            connect_args={"prepare_threshold": None},
+        )
 
-    if url.startswith("sqlite"):
+    if is_sqlite(url):
         @event.listens_for(engine, "connect")
         def _sqlite_pragmas(dbapi_connection, _record):  # pragma: no cover - trivial
             cursor = dbapi_connection.cursor()

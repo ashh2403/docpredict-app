@@ -34,6 +34,10 @@ async def lifespan(_: FastAPI):
     database.init_db()
     settings.temp_dir.mkdir(parents=True, exist_ok=True)
     _clean_stale_temp_files(settings.temp_dir)
+    if settings.static_dir is not None and database.is_sqlite(settings.database_url):
+        logger.warning("Production mode is using SQLite at %s. On hosts without a persistent disk "
+                       "(e.g. Render's free plan) all data is lost on restart; set DOCPREDICT_DATABASE_URL "
+                       "to a PostgreSQL database.", settings.database_url)
     if settings.secret_is_ephemeral:
         logger.warning("DOCPREDICT_SECRET_KEY is not set: using a temporary key. "
                        "Sessions will end whenever the server restarts. See backend/.env.example.")
